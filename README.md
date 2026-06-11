@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#technology-stack)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-red)](#technology-stack)
 [![scikit--learn](https://img.shields.io/badge/ML-scikit--learn-orange)](#model-details)
-[![License](https://img.shields.io/badge/License-TBD-lightgrey)](#license)
+
 
 ## Overview
 
