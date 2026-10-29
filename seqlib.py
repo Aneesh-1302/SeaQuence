@@ -337,15 +337,16 @@ def run_clustering(
 ) -> np.ndarray:
     """Cluster on dense embeddings (e.g., 50-D SVD)."""
     n = X.shape[0]
-    if n < 2:
+    if n < 3:
+        print(f"Insufficient samples for clustering (n_samples={n} < 3). Skipping clustering.")
         return np.zeros(n, dtype=int)
 
     if algo == "DBSCAN":
         model = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1)
         return model.fit_predict(X)
     else:
-        k = max(2, min(k, n // 2))
-        model = MiniBatchKMeans(n_clusters=k, random_state=SEED, batch_size=min(1000, n))
+        k = max(2, min(k, n - 1))
+        model = MiniBatchKMeans(n_clusters=k, random_state=SEED, batch_size=min(1000, n), n_init=3)
         return model.fit_predict(X)
 
 
@@ -658,6 +659,7 @@ def build_run_metadata(
     audit: Dict,
     cluster_metrics: Dict,
     classification_results: Dict,
+    k_clusters: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build a JSON-serializable run summary."""
     import sklearn, scipy
@@ -666,6 +668,7 @@ def build_run_metadata(
     meta = {
         "seed": SEED,
         "k": k,
+        "k_clusters": k_clusters if k_clusters is not None else cluster_metrics.get("k"),
         "max_features": max_features,
         "max_sequences": max_sequences,
         "per_class_cap": per_class_cap,

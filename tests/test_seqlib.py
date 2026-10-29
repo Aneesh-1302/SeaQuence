@@ -149,3 +149,21 @@ def test_clustering_returns_labels():
     labels = seqlib.run_clustering(X_svd, algo="MiniBatchKMeans", k=3)
     assert len(labels) == len(df)
     assert len(set(labels)) >= 2
+
+
+def test_clustering_k100_and_clamping():
+    """Clustering at k=100 on 2000 rows returns 100 labels in range [0, 99],
+    and clamps k when n_samples is small (e.g. 50 rows -> <= 49 clusters).
+    """
+    X_synth = sparse.random(2000, 50, density=0.1, format="csr", random_state=42)
+    labels = seqlib.run_clustering(X_synth, algo="MiniBatchKMeans", k=100)
+    assert len(labels) == 2000
+    assert len(set(labels)) == 100
+    assert set(labels) == set(range(100))
+
+    # Small sample clamping: 50 rows, k=100 gives at most 49 clusters
+    X_small = sparse.random(50, 20, density=0.1, format="csr", random_state=42)
+    labels_small = seqlib.run_clustering(X_small, algo="MiniBatchKMeans", k=100)
+    assert len(labels_small) == 50
+    assert len(set(labels_small)) <= 49
+

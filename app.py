@@ -55,7 +55,7 @@ with st.sidebar:
 
     st.subheader("Clustering")
     algo = st.selectbox("Algorithm", ["MiniBatchKMeans", "DBSCAN"], index=0)
-    k_clusters = st.slider("KMeans: number of clusters (k)", 2, 25, 8)
+    k_clusters = st.slider("KMeans: number of clusters (k)", min_value=2, max_value=100, value=8)
     eps = st.slider("DBSCAN: eps", 0.1, 5.0, 1.2, 0.1)
     min_samples = st.slider("DBSCAN: min_samples", 2, 50, 5)
 
@@ -151,13 +151,17 @@ if run_button:
     pts2d, plot_idx = seqlib.reduce_2d(X_sparse, method=dimred)
 
     # Clustering on 50-D
+    if len(df_seq) < 3:
+        st.warning(f"Insufficient samples for clustering (n_samples={len(df_seq)} < 3). Skipping clustering.")
+    clamped_k = max(2, min(int(k_clusters), len(df_seq) - 1)) if len(df_seq) >= 3 else int(k_clusters)
     cluster_labels = seqlib.run_clustering(
-        X_svd, algo=algo, k=int(k_clusters),
+        X_svd, algo=algo, k=int(clamped_k),
         eps=float(eps), min_samples=int(min_samples),
     )
 
     # Evaluate clusters
     cluster_metrics = seqlib.evaluate_clusters(cluster_labels, df_seq[label_col])
+    cluster_metrics["k"] = int(clamped_k) if algo == "MiniBatchKMeans" else int(len(set(cluster_labels[cluster_labels >= 0])))
 
     # Known vs unannotated
     kv_summary = seqlib.summarize_known_vs_unannotated(
@@ -188,6 +192,7 @@ if run_button:
         min_class_size=int(min_class_size), label_col=label_col,
         use_tfidf=use_tfidf, audit=audit,
         cluster_metrics=cluster_metrics, classification_results=clf_results,
+        k_clusters=int(clamped_k),
     )
 
     # Store everything in session state
@@ -198,6 +203,7 @@ if run_button:
         "plot_idx": plot_idx,
         "cluster_labels": cluster_labels,
         "cluster_metrics": cluster_metrics,
+        "clamped_k": int(clamped_k),
         "kv_summary": kv_summary,
         "clf_results": clf_results,
         "df_abund": df_abund,
@@ -242,18 +248,33 @@ with tab1:
     mc2.caption(f"chance level ~ {chance_metrics['nmi']:.3f}")
     mc3.metric("Purity", f"{cluster_metrics.get('purity', 0):.3f}")
     mc3.caption(f"chance level ~ {chance_metrics['purity']:.3f}")
-    st.caption(f"Evaluated on {cluster_metrics.get('n_labeled', 0)} labeled sequences.")
+    clamped_k_disp = R.get("clamped_k", cluster_metrics.get("k", kv_summary["n_clusters"]))
+    st.caption(f"Evaluated on {cluster_metrics.get('n_labeled', 0)} labeled sequences (k={clamped_k_disp}).")
 
     # 2D scatter
     if pts2d.shape[0] > 0:
         plot_labels = cluster_labels[plot_idx] if len(plot_idx) < len(cluster_labels) else cluster_labels
+        n_unique_clusters = len(set(plot_labels))
+        if n_unique_clusters > 15:
+            top10 = pd.Series(plot_labels).value_counts().nlargest(10).index.tolist()
+            plot_cluster_str = [str(lbl) if lbl in top10 else "other" for lbl in plot_labels]
+            order = [str(c) for c in top10] + ["other"]
+            palette = "tab20"
+        else:
+            plot_cluster_str = plot_labels.astype(str)
+            order = None
+            palette = "tab10"
+
         dfp = pd.DataFrame({
             "x": pts2d[:, 0],
             "y": pts2d[:, 1],
-            "cluster": plot_labels.astype(str),
+            "cluster": plot_cluster_str,
         })
         fig, ax = plt.subplots(figsize=(7, 5))
-        sns.scatterplot(data=dfp, x="x", y="y", hue="cluster", palette="tab10", s=40, alpha=0.7, ax=ax)
+        sns.scatterplot(
+            data=dfp, x="x", y="y", hue="cluster",
+            hue_order=order, palette=palette, s=40, alpha=0.7, ax=ax
+        )
         ax.set_title(f"Clusters in 2D ({dimred_used})")
         ax.set_xlabel("Component 1")
         ax.set_ylabel("Component 2")
@@ -274,7 +295,12 @@ with tab1:
             {"cluster": k, **v}
             for k, v in sorted(kv_summary["clusters"].items(), key=lambda kv2: kv2[0])
         ])
-        st.dataframe(df_sum.head(20), use_container_width=True)
+        if len(df_sum) > 25:
+            st.dataframe(df_sum.head(25), use_container_width=True)
+            with st.expander("Show all clusters"):
+                st.dataframe(df_sum, use_container_width=True)
+        else:
+            st.dataframe(df_sum, use_container_width=True)
 
 # ------ TAB 2: Classification ------
 with tab2:
@@ -339,9 +365,20 @@ with tab3:
         ax.set_ylabel("Relative abundance")
         ax.set_xlabel("Cluster")
         ax.set_title("Cluster relative abundance")
+        if len(df_abund) > 25:
+            step = 5 if len(df_abund) <= 50 else 10
+            for i, label in enumerate(ax.get_xticklabels()):
+                if i % step != 0:
+                    label.set_visible(False)
         st.pyplot(fig, clear_figure=True)
-        with st.expander("Abundance table"):
-            st.dataframe(df_abund, use_container_width=True, hide_index=True)
+        if len(df_abund) > 25:
+            with st.expander(f"Abundance table (showing first 25 of {len(df_abund)} clusters)"):
+                st.dataframe(df_abund.head(25), use_container_width=True, hide_index=True)
+            with st.expander("Show all abundance rows"):
+                st.dataframe(df_abund, use_container_width=True, hide_index=True)
+        else:
+            with st.expander("Abundance table"):
+                st.dataframe(df_abund, use_container_width=True, hide_index=True)
     else:
         st.info("No abundance data.")
 
